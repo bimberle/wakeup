@@ -1,159 +1,157 @@
-# ESP32 Wake-Up Tool
+# ESP32-S3-CAM Wake-Up Tool
 
-Ein Projekt zur Steuerung eines Windows 11 PCs mit Bewegungserkennung über eine ESP32-Kamera, über USB-OTG als HID-Tastatur emuliert.
+Automatisches Wecken eines Windows PCs durch Bewegungserkennung via ESP32-S3-CAM Board mit USB-Tastatur-Emulation.
 
-## 🎯 Features
+## 🎯 Projekt-Status
 
-- **USB-HID Tastatur-Emulation**: Registriert sich als USB-Tastatur am Windows 11 PC über OTG-Port
-- **Bewegungserkennung**: Erfasst Bewegungen über die angeschlossene Kamera
-- **Wake-Up Funktionalität**: Sendet Tasteneingaben (z.B. Pfeiltaste) zur PC-Aktivierung
-- **OTA Updates**: Firmware-Updates über WiFi ohne TTL-Verbindung
-- **MacBook M4 kompatibel**: Entwicklung und Debugging über Terminal/PlatformIO
+| Feature | Status | Notizen |
+|---------|--------|---------|
+| Hardware-Boot | ✅ Funktioniert | Via TTL-Adapter |
+| Serial-Debugging | ✅ Funktioniert | 115200 Baud über TTL |
+| USB-OTG Erkennung | ⚠️ Erkannt | Aber keine CDC auf macOS |
+| USB-HID Tastatur | 🔄 In Arbeit | Braucht separate Testfirmware |
+| Kamera-Init | ❌ Crash | Pin-Konflikte (Debugging ausstehend) |
+| Bewegungserkennung | 🔄 In Arbeit | Nach Kamera-Fix |
+| PC Wake-Up | 🔄 In Arbeit | Nach USB-HID & Motion-Detection |
 
-## 📋 Hardware-Anforderungen
+## 🔧 Hardware-Setup
 
-- **ESP32-S3** (z.B. ESP32-S3-DevKitC-1 oder ESP32-S3-EYE)
-- **OV2640 oder ähnliche Kamera**
-- **USB-Typ-C Kabel** (für OTG am Windows PC)
-- **MacBook mit M4** (für Entwicklung)
+### Board
+- **ESP32-S3-CAM** (wichtig: NOT esp32s3box!)
+- 8MB PSRAM
+- OV2640 Kamera-Sensor
 
-### Pinning ESP32-S3-EYE
-Die Konfiguration ist bereits in [include/config.h](include/config.h) vordefiniert.
+### Anschlüsse
+- **TTL-Adapter** (für Debugging):
+  - GND → GND
+  - TX (Adapter) → RX0 (ESP32, GPIO44)
+  - RX (Adapter) → TX0 (ESP32, GPIO43)
+  - `/dev/cu.usbserial-110` (macOS)
 
-## 🔧 Einrichtung auf MacBook M4
+- **USB-OTG** (für Production):
+  - USB-C Port (via OTG-Kabel zu PC)
+  - Noch nicht vollständig getestet
 
-### Voraussetzungen installieren
+### Buttons
+- **Boot**: GPIO0 (zum Bootloader-Modus)
+- **Reset**: RST (zum Neustarten)
+
+## 🚀 Schnellstart
+
+### Requirements
 ```bash
-# Homebrew installieren (falls noch nicht vorhanden)
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# Python 3 installieren (für PlatformIO)
-brew install python3
-
-# PlatformIO installieren
-pip3 install platformio
-
-# VSCode Extension installieren (optional aber empfohlen)
-# - PlatformIO IDE
-# - ESP-IDF Tools
+pip install platformio
+# oder via Homebrew: brew install platformio
 ```
 
-### Projekt öffnen
+### Build
 ```bash
-cd /Users/michi/Nextcloud/Haus/Touchscreen/WakeUpTool
-code .
+cd WakeUpTool
+pio run -e esp32-s3-cam
 ```
 
-## 🚀 Erste Schritte
-
-### 1. Konfiguration anpassen
-
-Editiere [include/config.h](include/config.h):
-- **WiFi SSID/Password**: Gib deine WiFi-Daten ein
-- **Kamera-Pins**: Falls eine andere Camera/Board verwendet wird, anpassen
-- **OTA Password**: Ändere das Standard-Passwort!
-
-### 2. Projekt kompilieren
-
+### Upload (über TTL-Adapter)
 ```bash
-# Via Terminal
-pio run -e esp32-s3-devkitc-1
-
-# Oder via VSCode: PlatformIO Home > Build
+pio run -t upload -e esp32-s3-cam --upload-port /dev/cu.usbserial-110
 ```
 
-### 3. Auf den ESP32 uploaden
-
-**Via TTL (initial setup):**
+### Serial Monitor
 ```bash
-pio run -e esp32-s3-devkitc-1 -t upload --upload-port /dev/tty.usbserial-*
+# Option 1: PlatformIO
+pio device monitor -b 115200 --port /dev/cu.usbserial-110
+
+# Option 2: Raw (macOS)
+cat /dev/cu.usbserial-110
 ```
 
-**Via OTA (später, nach WiFi-Setup):**
-```bash
-pio run -e esp32-s3-devkitc-1 -t upload --upload-port <ESP32-IP-ADRESSE>
-```
-
-### 4. Seriellen Monitor öffnen
-```bash
-pio device monitor -b 115200 --port /dev/tty.usbserial-*
-```
-
-## 💻 Verwendung mit Windows 11 PC
-
-### USB-OTG Verbindung
-
-1. **Verbinde** den ESP32 über USB-Typ-C OTG-Adapter mit dem Windows 11 PC
-2. Der ESP32 sollte als **USB HID Keyboard** erkannt werden
-3. Bewegungen vor der Kamera triggern Tasteneingaben zum Wake-Up
-
-### Wake-Up Konfiguration
-Im Windows Device Manager sollte das Gerät als "USB Human Interface Device" aufgelistet sein.
-
-## 🔄 OTA Updates (WiFi)
-
-Nach erfolgreichem initial TTL-Upload können zukünftige Updates über WiFi erfolgen:
-
-### Setup
-1. Stelle sicher, dass der ESP32 mit deinem WiFi verbunden ist
-2. Starte den OTA-Server: `pio run -e esp32-s3-devkitc-1 -t upload --upload-port <IP>`
-
-### Optional: Web-Interface für OTA
-Das Projekt kann um ein Web-Interface erweitert werden (mit ArduinoOTA + AsyncWebServer).
-
-## 📊 Debugging
-
-### Seriellen Output ansehen
-```bash
-pio device monitor -b 115200
-```
-
-### Spezifische Fehler debuggen
-- **"Camera initialization failed"**: Pin-Konfiguration in config.h überprüfen
-- **"USB Keyboard not connected"**: USB-Verbindung oder Treiber auf PC überprüfen
-- **"WiFi not connected"**: SSID/Password in config.h überprüfen
-
-## 📁 Projektstruktur
+## 📋 Dateistruktur
 
 ```
 WakeUpTool/
 ├── src/
-│   └── main.cpp              # Hauptprogramm
+│   └── main.cpp          # Hauptprogramm (Setup & Loop)
 ├── include/
-│   ├── config.h              # Konfiguration
-│   ├── motion_detection.h    # Bewegungserkennung & Camera-Init
-│   ├── usb_keyboard.h        # USB-HID Keyboard
-│   └── ota_update.h          # OTA Update-Funktionalität
-├── platformio.ini            # PlatformIO Konfiguration
-└── README.md                 # Diese Datei
+│   ├── config.h          # Pin-Definitionen & Konstanten
+│   ├── motion_detection.h # Bewegungserkennung (noch mit Kamera-Init)
+│   ├── usb_keyboard.h    # USB-HID Wrapper (noch disabled)
+│   └── ota_update.h      # OTA-Update (WIP)
+├── platformio.ini        # PlatformIO Konfiguration
+├── .github/
+│   └── copilot-instructions.md  # Für Copilot/LLM-Assistenten
+├── LESSONS_LEARNED.md    # ⭐ Detaillierte Erkenntnisse & Fehler
+└── README.md             # Dieses Dokument
 ```
 
-## 🔐 Sicherheit
+## 🐛 Bekannte Probleme & Lösungen
 
-- **OTA Password**: Ändere `OTA_PASSWORD` in config.h auf ein sicheres Passwort
-- **WiFi**: Verwende ein sicheres WiFi-Passwort
-- **USB-HID**: Der ESP32 wird als Tastatur erkannt - keine Authentifizierung möglich
+### Problem: "Guru Meditation Error" beim Boot
+**Ursache**: Falsches Board-Type  
+**Lösung**: Stelle sicher dass `platformio.ini` hat:
+```ini
+board = esp32-s3-devkitc-1  # NICHT esp32s3box!
+```
 
-## 📚 Weitere Ressourcen
+### Problem: Serial Output mit Garbage
+**Ursache**: USB-Stack Initialisierung stört UART-Timing  
+**Lösung**: Nutze `ARDUINO_USB_MODE=0` zum Debuggen:
+```ini
+build_flags = -DARDUINO_USB_MODE=0
+```
 
-- [ESP32 Arduino Core](https://github.com/espressif/arduino-esp32)
-- [esp32-camera Library](https://github.com/espressif/esp32-camera)
-- [USBHIDKeyboard Library](https://github.com/espressif/arduino-esp32/tree/master/libraries/USB)
-- [PlatformIO Dokumentation](https://docs.platformio.org/)
+### Problem: Kamera Init crasht
+**Ursache**: Pin-Konflikte (noch nicht vollständig analysiert)  
+**Lösung**: Kamera aktuell auskommentiert. Siehe [LESSONS_LEARNED.md](LESSONS_LEARNED.md#3-kamera-initialisierung-crash-)
 
-## 🐛 Known Limitations
+### Problem: USB-OTG wird nicht als seriell erkannt (macOS)
+**Ursache**: macOS braucht CDC-Treiber  
+**Lösung**: Nutze TTL-Adapter für Entwicklung
 
-- Motion Detection ist vereinfacht (Pixel-Vergleich). Für bessere Genauigkeit: OpenCV oder TensorFlow Lite verwenden
-- USB-HID benötigt direkte Verbindung (kein WiFi möglich)
-- OTA erfordert WiFi-Verbindung
+Für detailliertere Lösungsansätze siehe **[LESSONS_LEARNED.md](LESSONS_LEARNED.md)** ⭐
 
-## 📝 Lizenzen
+## 📚 Für Copilot / AI-Assistenten
 
-Dieses Projekt verwendet:
-- Arduino Framework
-- Espressif ESP-IDF
-- Diverse open-source Libraries (siehe platformio.ini)
+Dieses Projekt enthält detaillierte Instruktionen für KI-Assistenten:
+- [.github/copilot-instructions.md](.github/copilot-instructions.md) - Kurze technische Checklist
+- [LESSONS_LEARNED.md](LESSONS_LEARNED.md) - Ausführliches Fehler-Journal (wichtig!)
+
+**Bitte lesen vor Code-Änderungen!** Das spart Debugging-Zeit erheblich.
+
+## 🎯 Nächste Entwicklungs-Schritte
+
+1. **[HIGH PRIORITY]** Kamera-Debugging
+   - Pin-Konflikt isolieren
+   - Oder alternative Pins testen
+   
+2. **[HIGH PRIORITY]** USB-HID Tastatur Test
+   - Separate Testfirmware ohne Kamera
+   - Windows Geräte-Erkennung prüfen
+
+3. **[MEDIUM PRIORITY]** Bewegungserkennung
+   - Nach Kamera-Fix implementieren
+   - Oder mit Dummy-Motion debuggen
+
+4. **[LOW PRIORITY]** PC Wake-Up Integration
+   - Timing testen (Verzögerung akzeptabel?)
+   - Sleep-Verhalten testen
+
+## 📞 Support / Debugging
+
+Falls du auf neue Probleme stößt:
+
+1. **Check [LESSONS_LEARNED.md](LESSONS_LEARNED.md)** - Viele bekannte Fehler sind dort dokumentiert
+2. **Lies [.github/copilot-instructions.md](.github/copilot-instructions.md)** - Critical Learnings
+3. **Führe `pio run -v`** aus um detaillierte Build-Ausgabe zu sehen
+4. **Teste Serial-Output**: `timeout 5 cat /dev/cu.usbserial-110 | od -c`
+
+## 📄 Lizenz
+
+Proprietär - Privates Projekt
+
+## 👨‍💻 Credits
+
+Entwicklung: Michi + GitHub Copilot  
+Debugging-Insights dokumentiert: 15. Januar 2026
 
 ---
 
-**Hinweis**: Dies ist ein privates Hobby-Projekt. Verwende auf eigenes Risiko!
+**Tip**: Vor größeren Änderungen `LESSONS_LEARNED.md` lesen - spart viele Stunden Debugging! 🚀
