@@ -1,6 +1,10 @@
 esphome:
   name: wake-up-tool
   friendly_name: "PC Wake-Up Tool"
+  # XSHUT wird jetzt von VL53L0X enable_pin verwaltet
+  platformio_options:
+    build_flags:
+      - "-DARDUINO_USB_CDC_ON_BOOT=0"
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -26,23 +30,25 @@ ota:
 
 # Logger (Debug Output)
 logger:
-  level: INFO
+  level: DEBUG
   # Hardware Serial auf GPIO 43/44
   hardware_uart: UART1
   baud_rate: 115200
 
 # I2C für VL53L0X ToF-Sensor
+# Freenove ESP32-S3: GPIO14=SDA, GPIO21=SCL
 i2c:
-  sda: GPIO21
-  scl: GPIO20
-  frequency: 400kHz
+  sda: GPIO14
+  scl: GPIO21
+  frequency: 100kHz
   scan: true
 
 # GPIO für LED Feedback
 output:
   - platform: gpio
-    pin: GPIO2
+    pin: GPIO48
     id: motion_led
+  # XSHUT wird jetzt von VL53L0X Komponente via enable_pin verwaltet
 
 # LED als Binary Output (ON/OFF)
 light:
@@ -56,54 +62,107 @@ sensor:
   - platform: vl53l0x
     name: "Distance"
     id: distance_sensor
-    update_interval: 100ms
-    long_range: false  # false = short range (max 1.3m)
+    update_interval: 500ms  # Mehr Zeit für stabile Messung
+    long_range: false  # Short Range (max 1.3m) - schneller und stabiler
     address: 0x29
+    timeout: 200us  # Kürzeres Timeout für schnellere Recovery
+    # XSHUT Pin für korrektes Sensor-Power-Sequencing
+    enable_pin: GPIO47
+
+# ============================================
+# EINSTELLBARE PARAMETER (in Home Assistant)
+# ============================================
+number:
+  # Cooldown: Wie lange warten bis nächster Trigger möglich? (Sekunden)
+  - platform: template
+    name: "Motion Cooldown"
+    id: motion_cooldown
+    icon: "mdi:timer-sand"
+    unit_of_measurement: "s"
+    min_value: 0
+    max_value: 300
+    step: 5
+    initial_value: 5  # 5 Sekunden für schnelles Testen
+    optimistic: true
+    restore_value: true
 
 # Binary Sensor für Motion Detection
-# FUNKTIONSWEISE: Erkennt ECHTE BEWEGUNG durch Distanzänderung
-# wenn aktuelle_distanz - letzte_distanz > threshold = Bewegung erkannt
+# FUNKTIONSWEISE: Sobald eine gültige Distanz gemessen wird = Motion
+# Mit Cooldown: Nach einem Trigger wartet es X Sekunden bevor erneut getriggert werden kann
 binary_sensor:
   - platform: template
     name: "Motion Detected"
     id: motion_detected
     device_class: motion
     lambda: |-
-      static float last_distance = 0;
+      static unsigned long last_trigger_time = 0;
+      
       float current = id(distance_sensor).state;
+      bool object_detected = !isnan(current);
       
-      // PARAMETER 1: Distanzänderung Schwellenwert (in mm)
-      // - Höher = weniger empfindlich (z.B. 100mm für robuste Erkennung)
-      // - Niedriger = empfindlicher (z.B. 30mm für schnelle Erkennung)
-      float motion_threshold = 50;  // 50mm Mindeständerung
-      
-      // Berechne Distanzänderung
-      float distance_change = abs(current - last_distance);
-      
-      // Debug Output: zeigt Distanzänderung in Logs
-      // ESP_LOGI("MOTION", "Distance: %.0f mm, Change: %.0f mm, Threshold: %.0f mm",
-      //          current, distance_change, motion_threshold);
-      
-      // Erkenne Bewegung wenn Änderung > Schwellenwert
-      if (distance_change > motion_threshold) {
-        last_distance = current;
-        return true;  // ✅ Bewegung erkannt
+      // Kein Objekt = OFF
+      if (!object_detected) {
+        return false;
       }
       
-      last_distance = current;
-      return false;  // ❌ Keine Bewegung
+      // Objekt erkannt! Prüfe Cooldown (zeitbasiert)
+      unsigned long cooldown_ms = (unsigned long)(id(motion_cooldown).state * 1000);
+      unsigned long now = millis();
+      
+      // Cooldown seit letztem Trigger noch nicht abgelaufen?
+      if ((now - last_trigger_time) < cooldown_ms) {
+        return false;  // Noch im Cooldown, ignoriere
+      }
+      
+      // NEUER TRIGGER! 
+      last_trigger_time = now;
+      ESP_LOGI("motion", "🎯 Motion TRIGGERED! Next allowed in %ds", (int)id(motion_cooldown).state);
+      return true;
     
-    # PARAMETER 2: Debounce Verzögerungen (verhindert False-Positives)
+    # Debounce Filter - KEIN delayed_on damit schnelle Erkennung
     filters:
-      - delayed_on: 200ms   # Braucht 200ms kontinuierlich aktiv zu sein
-      - delayed_off: 1500ms # Bleibt noch 1.5s aktiv nach letzter Bewegung
+      - delayed_off: 3s  # Bleibt 3s aktiv nach letzter Bewegung
     
-    # LED blinken wenn Motion erkannt
-    on_state:
+    # LED einschalten wenn Motion erkannt
+    on_press:
       then:
-        - light.toggle: motion_indicator
+        - light.turn_on: motion_indicator
+    on_release:
+      then:
+        - light.turn_off: motion_indicator
 
-# Restart Button (optional)
+  # Sensor Health Check - prüft ob die VL53L0X KOMPONENTE funktioniert
+  # Das ist UNABHÄNGIG von NaN (out of range) - prüft den I2C Bus Status
+  - platform: template
+    name: "Sensor Error"
+    id: sensor_error
+    device_class: problem
+    lambda: |-
+      // Prüfe ob die VL53L0X Komponente als FAILED markiert ist
+      // Das passiert bei I2C-Fehlern (NACK, Bus blockiert, etc.)
+      // NICHT bei normalem "out of range" (NaN)
+      return id(distance_sensor).is_failed();
+
+# Restart Button
 button:
   - platform: restart
     name: "Reboot"
+
+# Intervall für automatischen Health-Check und Watchdog
+interval:
+  - interval: 60s
+    then:
+      # Nur rebooten wenn Sensor Error binary_sensor aktiv ist
+      - lambda: |-
+          static int error_minutes = 0;
+          if (id(sensor_error).state) {
+            error_minutes++;
+            ESP_LOGW("WATCHDOG", "Sensor error active for %d minutes", error_minutes);
+            // Nach 5 Minuten echtem Fehler automatisch neu starten
+            if (error_minutes >= 5) {
+              ESP_LOGE("WATCHDOG", "Persistent sensor error, rebooting...");
+              App.safe_reboot();
+            }
+          } else {
+            error_minutes = 0;  // Reset wenn Sensor OK
+          }

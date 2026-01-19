@@ -59,15 +59,45 @@ pc_mac_address: "48:21:0b:73:69:43"
 
 3. **SAVE**
 
-### 5️⃣ OTA Flash starten ⭐
+### 5️⃣ Erstes Flash via TTL-Adapter (vom Mac) ⭐
 
-1. ESPHome Dashboard → **wake_up_tool** Karte
+Das Board läuft noch die Bootstrap-Firmware. Wir flashen ESPHome über den TTL-Adapter vom Mac.
+
+**Schritt A: Binary in ESPHome Dashboard herunterladen**
+
+1. ESPHome Dashboard → `wake_up_tool` Karte
 2. Klick auf **drei Punkte (⋮)** → **Install**
-3. Wähle: **"Wirelessly"** ← Das ist der OTA-Flash!
-4. Gib die IP ein: **`192.168.1.154`**
-5. Klick **"CONNECT"**
+3. Wähle: **"Manual download"**
+4. Wähle: **"Modern format"** (oder "Legacy format" falls Modern nicht geht)
+5. **Warte** bis ESPHome kompiliert (~1-3 Minuten)
+6. Browser lädt automatisch die `.bin` Datei herunter
+7. Speichere in `~/Downloads/` (z.B. `wake-up-tool.bin`)
 
-**Flash startet!** (~1-2 Minuten)
+**Schritt B: Binary via TTL-Adapter flashen**
+
+1. Board ist mit TTL-Adapter am Mac angeschlossen (`/dev/cu.usbserial-110`)
+2. Terminal öffnen und ausführen:
+
+```bash
+cd /Users/michi/Nextcloud/Haus/Touchscreen/WakeUpTool
+source .venv/bin/activate
+esptool.py --chip esp32s3 --port /dev/cu.usbserial-110 --baud 460800 write_flash 0x0 ~/Downloads/wake-up-tool.bin
+```
+
+3. **Falls "Connecting..." hängt**: 
+   - **BOOT-Taste** gedrückt halten
+   - **RESET-Taste** kurz drücken
+   - BOOT-Taste loslassen
+   - Flash startet automatisch
+
+4. **Warte ~1-2 Minuten** bis Flash fertig ist
+
+**Nach erfolgreichem Flash:**
+- Board startet mit ESPHome Firmware neu
+- Verbindet sich automatisch mit WiFi
+- Port 3232 (API) ist jetzt verfügbar ✅
+- ESPHome Dashboard zeigt grünen Status
+- **Ab jetzt funktioniert OTA Updates über WiFi!**
 
 ### 6️⃣ Verifikation
 
@@ -124,6 +154,21 @@ Füge in `automations.yaml` ein:
 ---
 
 ## 🐛 Troubleshooting
+
+### "Es kann keine Verbindung zum ESPHome-Gerät hergestellt werden"
+**Ursache:** Das Board läuft noch die Bootstrap-Firmware (nur Webserver auf Port 80), nicht ESPHome mit API (Port 3232).
+
+**Lösung:**
+- Flashe das Board **einmalig über TTL-Adapter** mit ESPHome (siehe Schritt 5️⃣)
+- Danach ist der API Port 3232 verfügbar ✅
+- Dann funktionieren OTA Updates
+
+### esptool.py "Connecting..." hängt
+**Lösung:** Board in Bootloader-Modus bringen:
+1. **BOOT-Taste** gedrückt halten
+2. **RESET-Taste** kurz drücken
+3. **BOOT-Taste** loslassen
+4. Jetzt `esptool.py` Befehl ausführen
 
 ### "Device not reachable"
 ```bash
