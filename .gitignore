@@ -1,17 +1,27 @@
-# PlatformIO
+# ESPHome Secrets (NIEMALS in Git!)
+secrets.yaml
+
+# Python venv
+.venv/
+venv/
+env/
+
+# PlatformIO (falls noch verwendet)
 .pio/
-.pioenvs/
-.piolibdeps/
-.vscode
-.clang_complete
-.gcc-flags.json
+.platformio/
+build/
 
 # IDE
+.vscode/
 .idea/
 *.swp
 *.swo
 *~
-.DS_Store
 
-# Test files
-test_*.cpp
+# OS
+.DS_Store
+Thumbs.db
+
+# ESPHome Build Artifacts (optional)
+.esphome/
+*.bin

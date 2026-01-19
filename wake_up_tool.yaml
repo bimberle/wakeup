@@ -1,0 +1,109 @@
+esphome:
+  name: wake-up-tool
+  friendly_name: "PC Wake-Up Tool"
+
+esp32:
+  board: esp32-s3-devkitc-1
+
+# WiFi Konfiguration
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # Optional: Fallback AP wenn WiFi nicht erreichbar
+  ap:
+    ssid: "WakeUpTool-Fallback"
+    password: "12345678"
+
+# Home Assistant API
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+# OTA Updates
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# Logger (Debug Output)
+logger:
+  level: INFO
+  # Hardware Serial auf GPIO 43/44
+  hardware_uart: UART1
+  baud_rate: 115200
+
+# I2C für VL53L0X ToF-Sensor
+i2c:
+  sda: GPIO21
+  scl: GPIO20
+  frequency: 400kHz
+  scan: true
+
+# GPIO für LED Feedback
+output:
+  - platform: gpio
+    pin: GPIO2
+    id: motion_led
+
+# LED als Binary Output (ON/OFF)
+light:
+  - platform: binary
+    name: "Motion Detected LED"
+    output: motion_led
+    id: motion_indicator
+
+# VL53L0X ToF-Sensor (Distance Measurement)
+sensor:
+  - platform: vl53l0x
+    name: "Distance"
+    id: distance_sensor
+    update_interval: 100ms
+    long_range: false  # false = short range (max 1.3m)
+    address: 0x29
+
+# Binary Sensor für Motion Detection
+# FUNKTIONSWEISE: Erkennt ECHTE BEWEGUNG durch Distanzänderung
+# wenn aktuelle_distanz - letzte_distanz > threshold = Bewegung erkannt
+binary_sensor:
+  - platform: template
+    name: "Motion Detected"
+    id: motion_detected
+    device_class: motion
+    lambda: |-
+      static float last_distance = 0;
+      float current = id(distance_sensor).state;
+      
+      // PARAMETER 1: Distanzänderung Schwellenwert (in mm)
+      // - Höher = weniger empfindlich (z.B. 100mm für robuste Erkennung)
+      // - Niedriger = empfindlicher (z.B. 30mm für schnelle Erkennung)
+      float motion_threshold = 50;  // 50mm Mindeständerung
+      
+      // Berechne Distanzänderung
+      float distance_change = abs(current - last_distance);
+      
+      // Debug Output: zeigt Distanzänderung in Logs
+      // ESP_LOGI("MOTION", "Distance: %.0f mm, Change: %.0f mm, Threshold: %.0f mm",
+      //          current, distance_change, motion_threshold);
+      
+      // Erkenne Bewegung wenn Änderung > Schwellenwert
+      if (distance_change > motion_threshold) {
+        last_distance = current;
+        return true;  // ✅ Bewegung erkannt
+      }
+      
+      last_distance = current;
+      return false;  // ❌ Keine Bewegung
+    
+    # PARAMETER 2: Debounce Verzögerungen (verhindert False-Positives)
+    filters:
+      - delayed_on: 200ms   # Braucht 200ms kontinuierlich aktiv zu sein
+      - delayed_off: 1500ms # Bleibt noch 1.5s aktiv nach letzter Bewegung
+    
+    # LED blinken wenn Motion erkannt
+    on_state:
+      then:
+        - light.toggle: motion_indicator
+
+# Restart Button (optional)
+button:
+  - platform: restart
+    name: "Reboot"
