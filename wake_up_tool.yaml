@@ -1,13 +1,27 @@
 esphome:
   name: wake-up-tool
   friendly_name: "PC Wake-Up Tool"
-  # XSHUT wird jetzt von VL53L0X enable_pin verwaltet
   platformio_options:
     build_flags:
       - "-DARDUINO_USB_CDC_ON_BOOT=0"
+      - "-DARDUINO_USB_MODE=0"        # OTG Mode (nicht CDC)
+      - "-DCFG_TUD_HID=1"             # TinyUSB HID aktivieren
+      - "-DCFG_TUD_ENABLED=1"
+  includes:
+    - custom_components/usb_keyboard.h
+  on_boot:
+    priority: 600
+    then:
+      - lambda: |-
+          // USB Keyboard initialisieren
+          usb_keyboard_init();
 
 esp32:
   board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: arduino
+    version: recommended
 
 # WiFi Konfiguration
 wifi:
@@ -123,10 +137,17 @@ binary_sensor:
     filters:
       - delayed_off: 3s  # Bleibt 3s aktiv nach letzter Bewegung
     
-    # LED einschalten wenn Motion erkannt
+    # Bei Motion: LED an + USB Tastendruck senden (wenn aktiviert)
     on_press:
       then:
         - light.turn_on: motion_indicator
+        - if:
+            condition:
+              switch.is_on: usb_wake_enabled
+            then:
+              - lambda: |-
+                  // USB Tastendruck senden um Bildschirm aufzuwecken
+                  usb_keyboard_wake_screen();
     on_release:
       then:
         - light.turn_off: motion_indicator
@@ -147,6 +168,24 @@ binary_sensor:
 button:
   - platform: restart
     name: "Reboot"
+  
+  # Manueller Test-Button für USB Keyboard Wake
+  - platform: template
+    name: "Test USB Wake"
+    icon: "mdi:keyboard"
+    on_press:
+      then:
+        - lambda: |-
+            usb_keyboard_wake_screen();
+
+# Switch um USB-Wake zu aktivieren/deaktivieren
+switch:
+  - platform: template
+    name: "USB Wake Enabled"
+    id: usb_wake_enabled
+    icon: "mdi:monitor"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
 
 # Intervall für automatischen Health-Check und Watchdog
 interval:

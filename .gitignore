@@ -25,3 +25,4 @@ Thumbs.db
 # ESPHome Build Artifacts (optional)
 .esphome/
 *.bin
+esp-idf-wakeup/
