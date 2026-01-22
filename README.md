@@ -1,140 +1,129 @@
-# ESP32-S3-CAM Wake-Up Tool
+# ESP32-S3 Wake-Up Tool
 
-Bewegungserkennung mit VL53L0X ToF-Sensor → Windows PC aufwecken via Wake-on-LAN.
+Bewegungserkennung mit VL53L0X ToF-Sensor → Windows 11 PC aufwecken via USB HID.
 
 ## 🎯 Projekt-Status
 
 | Feature | Status | Notizen |
 |---------|--------|---------|
-| WiFi Verbindung | ✅ Funktioniert | 192.168.1.154 |
-| ToF-Sensor (VL53L0X) | ⏳ Bereit | I2C an GPIO 20/21 |
-| ESPHome Firmware | ⏳ Nächster Schritt | Via OTA Flash |
-| Home Assistant Integration | ⏳ Nach ESPHome | Automatische Erkennung |
-| Wake-on-LAN | ⏳ Nach HA | Automation erstellen |
+| VL53L0X ToF-Sensor | ✅ Funktioniert | Pololu-Port mit Kalibrierung |
+| USB HID Keyboard | ✅ Funktioniert | Remote Wakeup |
+| Motion Detection | ✅ Funktioniert | Delta > 500mm |
+| Windows 11 Wake | ✅ Funktioniert | Aus Standby |
 
 ## 🔧 Hardware-Setup
 
 ### Board
-- **ESP32-S3-CAM WROOM** (esp32-s3-devkitc-1)
-- 8MB PSRAM
+- **ESP32-S3 WROOM** (z.B. Freenove ESP32-S3-WROOM)
+- Dual USB: OTG (für Windows) + UART (für Flashen)
 
 ### VL53L0X ToF-Sensor (I2C)
 ```
-VL53L0X Pin    →  ESP32-S3-CAM Pin
+VL53L0X Pin    →  ESP32-S3 Pin
 ─────────────────────────────────
 VCC            →  3.3V
 GND            →  GND
-SDA            →  GPIO 21
-SCL            →  GPIO 20
+SDA            →  GPIO 14
+SCL            →  GPIO 21
+XSHUT          →  GPIO 47
 ```
 
-### LED-Feedback
+### USB-Anschlüsse
 ```
-LED            →  ESP32-S3-CAM Pin
+USB Port       →  Verwendung
 ──────────────────────────────────
-Anode (+)      →  GPIO 2 (über 470Ω)
-Kathode (-)    →  GND
+USB OTG        →  Windows PC (für Wake-Signal)
+USB UART       →  Mac/PC zum Flashen & Debuggen
 ```
 
-### TTL-Adapter (nur für Debugging)
-```
-TTL Adapter    →  ESP32-S3-CAM Pin
-──────────────────────────────────
-TX             →  GPIO 43 (RX)  ⚠️ Nicht GPIO 1!
-RX             →  GPIO 44 (TX)  ⚠️ Nicht GPIO 3!
-GND            →  GND
-```
+**⚠️ Wichtig:** Der USB OTG Port ist der native USB-C/Micro - NICHT der UART-Adapter!
 
 ## 🚀 Schnellstart
 
-### Aktueller Stand
-Das Board ist bereits im WiFi und bereit für ESPHome!
+Das funktionierende Projekt liegt in `esp-idf-wakeup/`:
 
-**Board-IP: `192.168.1.154`**
+```bash
+cd esp-idf-wakeup
 
-### Nächster Schritt: ESPHome via Home Assistant flashen
+# 1. ESP-IDF installieren (einmalig)
+./00-init.sh
 
-👉 **Siehe [HA_QUICK_FLASH.md](HA_QUICK_FLASH.md)** für die komplette Anleitung!
+# 2. Target setzen (einmalig)
+./00-set-target.sh esp32s3
 
-Kurzfassung:
-1. Home Assistant → ESPHome Dashboard öffnen
-2. `wake_up_tool.yaml` importieren
-3. **Install** → **Wirelessly** → IP: `192.168.1.154`
-4. Fertig! 🎉
+# 3. Bauen und Flashen
+source esp-idf/export.sh
+idf.py build flash -p /dev/cu.usbserial-110
+```
+
+**Hinweis:** Port kann variieren - prüfe mit `ls /dev/cu.*`
+
+## ⚙️ Parameter anpassen
+
+Die wichtigsten Parameter findest du in `esp-idf-wakeup/main/tof_sensor.h`:
+
+```c
+#define MOTION_THRESHOLD_MM     500     // Distanzänderung für Trigger (mm)
+#define MOTION_COOLDOWN_MS      240000  // Pause nach Wake (4 Minuten)
+#define TOF_SAMPLE_INTERVAL_MS  200     // Abtastrate
+```
+
+Nach Änderung neu flashen:
+```bash
+cd esp-idf-wakeup
+source esp-idf/export.sh
+idf.py build flash -p /dev/cu.usbserial-110
+```
+
+## 🖥️ Windows Setup
+
+1. ESP32 mit **USB OTG Port** an Windows PC anschließen
+2. Windows erkennt "Wakeup Keyboard Device"
+3. **Geräte-Manager** → Tastaturen → "Wakeup Keyboard Device"
+4. **Eigenschaften** → **Energieverwaltung**
+5. ✅ **"Gerät kann den Computer aus dem Ruhezustand aktivieren"** aktivieren
 
 ## 📋 Dateistruktur
 
 ```
 WakeUpTool/
-├── wake_up_tool.yaml     # ESPHome Firmware-Konfiguration
-├── secrets.yaml          # WiFi/API Credentials (nicht in Git!)
-├── HA_QUICK_FLASH.md     # ⭐ Anleitung: Flash via Home Assistant
-├── ESPHOME_SETUP.md      # Detaillierte ESPHome Dokumentation
-├── src/
-│   └── main.cpp          # WiFi-Bootstrap Firmware (bereits geflasht)
-├── include/              # PlatformIO Header (für Bootstrap)
-├── platformio.ini        # PlatformIO Config
-└── .github/
-    └── copilot-instructions.md  # AI-Assistenten Instruktionen
-```
-
-## 🎯 Workflow
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  1. WiFi-Bootstrap (PlatformIO)           ✅ ERLEDIGT       │
-│     Board verbindet sich mit WiFi                           │
-│     → IP: 192.168.1.154                                     │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│  2. ESPHome Flash (via Home Assistant)    ⏳ NÄCHSTER SCHRITT│
-│     - wake_up_tool.yaml in HA ESPHome importieren           │
-│     - OTA Flash an 192.168.1.154                            │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│  3. Home Assistant Integration                              │
-│     - binary_sensor.motion_detected                         │
-│     - sensor.distance                                       │
-│     - light.motion_detected_led                             │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│  4. Wake-on-LAN Automation                                  │
-│     - Motion detected → Magic Packet an PC                  │
-│     - PC wacht auf! 🎉                                       │
-└─────────────────────────────────────────────────────────────┘
+├── esp-idf-wakeup/           # ⭐ AKTIVES PROJEKT (ESP-IDF)
+│   ├── main/
+│   │   ├── tof_sensor.c      # VL53L0X Treiber (Pololu-Port)
+│   │   ├── tof_sensor.h      # ⚙️ Parameter hier anpassen!
+│   │   ├── usb.c             # USB HID Keyboard
+│   │   └── main.c            # Hauptprogramm
+│   └── README.md             # Detaillierte Doku
+├── wake_up_tool.yaml         # (Alt: ESPHome-Versuch)
+└── README.md                 # Diese Datei
 ```
 
 ## 🐛 Troubleshooting
 
-### Board nicht im Netzwerk gefunden?
-- Router DHCP-Liste prüfen
-- Board neu starten (Reset-Taste)
-- Falls nötig: PlatformIO neu flashen
+### Sensor zeigt nur 65535 / 2000mm
+- Kabel prüfen (SDA→GPIO14, SCL→GPIO21, XSHUT→GPIO47)
+- Nach Kabel-Änderung: Reset-Knopf drücken
 
-### ESPHome OTA schlägt fehl?
-- Prüfe ob Board erreichbar: `curl http://192.168.1.154/`
-- Firewall-Regeln prüfen (Port 3232 für OTA)
+### PC wacht nicht auf
+- "Gerät kann Computer aktivieren" in Windows aktiviert?
+- USB OTG Port verwendet (nicht UART)?
+- Im Log prüfen: `remote_wakeup_en=1`?
 
-### Motion wird nicht erkannt?
-- Sensor-Verkabelung prüfen (I2C GPIO 20/21)
-- ESPHome Logs in HA prüfen
-- Threshold anpassen (siehe `wake_up_tool.yaml`)
+### Zu viele False-Positives
+- `MOTION_THRESHOLD_MM` erhöhen (z.B. 600-800)
+- Sensor-Ausrichtung prüfen
 
-## 📚 Dokumentation
+## 📚 Links
 
-| Datei | Beschreibung |
-|-------|--------------|
-| [HA_QUICK_FLASH.md](HA_QUICK_FLASH.md) | **START HERE** - ESPHome Flash via HA |
-| [ESPHOME_SETUP.md](ESPHOME_SETUP.md) | Detaillierte HA + WoL Setup |
-| [LESSONS_LEARNED.md](LESSONS_LEARNED.md) | Debugging-Erkenntnisse |
+- **GitHub Repo:** https://github.com/bimberle/esp32-wakeup-tool
+- **ESP-IDF Docs:** https://docs.espressif.com/projects/esp-idf/
+- **VL53L0X Datasheet:** https://www.st.com/resource/en/datasheet/vl53l0x.pdf
 
 ## 📄 Lizenz
 
-Proprietär - Privates Projekt
+MIT - Siehe LICENSE
 
 ---
 
-**Aktueller Status**: Board im WiFi ✅ → ESPHome Flash ausstehend ⏳
+**Status**: ✅ Funktioniert! ESP32 erkennt Bewegung und weckt Windows 11 PC auf.
+

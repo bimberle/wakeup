@@ -25,4 +25,9 @@ Thumbs.db
 # ESPHome Build Artifacts (optional)
 .esphome/
 *.bin
-esp-idf-wakeup/
+
+# ESP-IDF Projekt - nur Source tracken, nicht Framework/Build
+esp-idf-wakeup/esp-idf/
+esp-idf-wakeup/build/
+esp-idf-wakeup/managed_components/
+esp-idf-wakeup/.vscode/
